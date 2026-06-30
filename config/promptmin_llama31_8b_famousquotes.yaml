@@ -1,0 +1,45 @@
+defaults:
+  - override hydra/job_logging: custom
+  - _self_
+
+hydra:
+  run:
+    dir: ./outputs/${experiment_name}/${run_id}
+  job_logging:
+    handlers:
+      file:
+        filename: ${hydra.run.dir}/log.log
+
+# Famous-quotes ACR on Llama-3.1-8B BASE (meta-llama/Llama-3.1-8B) -- pretrained
+# base model, NOT -Instruct. No chat template (base model): prep_text places the
+# optimized free tokens directly before the target. Same protocol as the
+# Pythia-12B / Llama-2-13B configs; a stronger, more modern base model.
+#
+# !! ENV NOTE: Llama-3.1's RoPE scaling needs transformers >= 4.43 (the repo's
+# pinned 4.38.2 predates Llama 3). A modern transformers (>=4.47) covers both
+# this model and OLMo-2-13B. GCG code itself is upgrade-safe (uses the stable
+# model.get_input_embeddings().weight API). Gated on HF (Llama license).
+model_name: meta-llama/Llama-3.1-8B
+dataset: famous_quotes
+data_idx: 52           # 52 = "You miss 100% of the shots you don't take." (Gretzky)
+
+chat_template:
+  - ""
+  - ""
+system_prompt: ""
+input_str: ""
+
+discrete_optimizer: gcg
+batch_size: 100
+mini_batch_size: 100
+num_steps: 200
+topk: 250
+lr: 0.01
+optimizer: adam
+max_tokens: -1
+
+random_weights: false
+seed: 42
+target_str: jumps over the lazy dog   # ignored when dataset+data_idx are set
+experiment_name: ${model_name}_${discrete_optimizer}_${lr}_${batch_size}_${num_steps}_${topk}_${seed}
+run_id: ${generate_id:}
