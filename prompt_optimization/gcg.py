@@ -73,24 +73,30 @@ def optimize_gcg(model, input_ids, input_slice, free_token_slice, target_slice, 
             # Compute test loss and check token matches
             output_single = model(input_ids=input_ids.unsqueeze(0))
             match = (output_single.logits[0, loss_slice].argmax(-1) == input_ids[target_slice].squeeze())
-        cur_loss = loss[best_candidate].mean().item()
-        # exp(-loss) = geometric-mean per-token prob; success threshold is exp(-loss) >= b.
+        # Early-stop AND best-tracking use an fp32 recompute of the mean per-token CE on the chosen
+        # candidate -- identical to the final verdict in check_output_prob_threshold (reuses the
+        # output_single forward; upcasts to fp32 before log_softmax). The bf16 batch loss is
+        # optimistic at the boundary, so stopping on it can quit on a "success" that fp32 then
+        # rejects; gating on fp32 keeps the stop consistent with the verdict.
+        fp32_logp = F.log_softmax(output_single.logits[0, loss_slice], dim=-1, dtype=torch.float32)
+        mean_ce = -fp32_logp.gather(1, input_ids[target_slice].unsqueeze(-1)).squeeze(-1).mean().item()
+        # exp(-mean_ce) = geometric-mean per-token prob; success threshold is exp(-mean_ce) >= b.
         logging.info(f"step: {i:<4} | "
-                     f"loss: {cur_loss:0.6f} | "
-                     f"exp(-loss): {math.exp(-cur_loss):0.4f} | "
+                     f"mean_ce: {mean_ce:0.6f} | "
+                     f"exp(-loss): {math.exp(-mean_ce):0.4f} | "
                      f"{match.int().tolist()} | "
                      )
-        # Success / early-stop: probabilistic threshold (mean-CE <= -ln b) if provided,
+        # Success / early-stop: fp32 probabilistic threshold (mean_ce <= -ln b) if provided,
         # else the original argmax criterion (every target token is the argmax).
         if success_ce_threshold is not None:
-            acquired = cur_loss <= success_ce_threshold
+            acquired = mean_ce <= success_ce_threshold
         else:
             acquired = bool(match.all())
         if acquired:
             best_input = input_ids.clone()
             break
-        if cur_loss < best_loss:
-            best_loss = cur_loss
+        if mean_ce < best_loss:
+            best_loss = mean_ce
             best_input = input_ids.clone()
 
     return {"input_ids": best_input, "inputs_embeds": model.get_input_embeddings()(best_input).unsqueeze(0)}
