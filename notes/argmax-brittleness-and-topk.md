@@ -29,6 +29,36 @@ Two independent "no" signals:
 
 …yet the pipeline reports `success: True`.
 
+## Four-model Gretzky cross-tab (single-quote illustration)
+
+Same target (`famous_quotes` idx 52), their unmodified pipeline, base models (no chat template),
+num_steps=200, seed 42. `generates verbatim?` = does the logged greedy `output` equal the goal.
+
+| model | `success` | |y| | |x*| | ACR | memorized (ACR>1)? | generates verbatim? |
+|---|---|--:|--:|--:|---|---|
+| Pythia-12B   | True | 12 | 15 | 0.80 | No  | No  |
+| Llama-2-13B  | True | 17 | 9  | 1.89 | Yes | No  |
+| Llama-3.1-8B | True | 13 | ?  | <1   | No  | Yes |
+| OLMo-2-13B   | True | 13 | 9  | 1.44 | Yes | Yes |
+
+(Llama-3.1-8B exact |x*|/ACR pending its results.json; ACR<1 + generates per the run log.)
+
+**Punchline.** `success` is True for all four and is uninformative: the (memorized?, generates?)
+cross-tab hits all four cells. The two off-diagonal cases are the damning ones for ACR:
+- **Llama-2-13B**: ACR 1.89 "memorized" but does **not** generate the quote (greedy → the Elf line).
+- **Llama-3.1-8B**: ACR < 1 "not memorized" but **does** generate the quote.
+
+So on this quote ACR's "memorized" label is *anti-correlated* with actual verbatim generation. This is
+a single-quote *illustration*, not a statistical claim — the systematic version is the probabilistic
+measure (below) run over the set. It is, however, the cleanest motivation for a graded,
+generation-faithful measure: the binary teacher-forced `success` collapses four very different
+situations into one label, and even the ACR>1 threshold dissociates from real extractability.
+
+Free no-prompt baseline already in `results.json`: `loss_of_target_str` is the quote's unconditional
+per-token NLL, so no-prompt geometric-mean per-token prob = exp(-loss): Pythia 0.19, Llama-2 0.39,
+OLMo 0.23 — all far below a 0.9 bar unconditionally, so the GCG prompt's job is to lift
+P(suffix|prompt); our measure quantifies by how much.
+
 ## What `success` actually means (and doesn't)
 
 `success` is a narrow internal flag: **"GCG found *some* prompt, at *some* length it tried, whose
