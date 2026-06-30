@@ -1,0 +1,18 @@
+# Modern env for OLMo-2-13B and Llama-3.1-8B.
+# OLMo2 architecture needs transformers >= 4.47; Llama-3.1 RoPE scaling needs >= 4.43.
+#
+# RECOMMENDED setup (dedicated env; never touches base -- see SETUP-cluster.md):
+#   conda create -n acr-modern --clone base       # COPIES base; base is untouched
+#   conda activate acr-modern                      # activate BEFORE any pip
+#   pip install -r requirements-modern.txt         # installs into acr-modern only, not torch
+#
+# If the pinned transformers is unavailable on the cluster, any transformers
+# >=4.48,<4.50 should load both models. Do NOT install ai2-olmo here -- OLMo-2
+# is supported natively by transformers (ai2-olmo==0.2.5 is for OLMo *1*).
+transformers==4.48.3
+accelerate>=1.0.0
+sentencepiece>=0.2.0
+hydra-core==1.3.2
+omegaconf>=2.3.0
+almost-unique-id==0.0.3
+numpy<2
