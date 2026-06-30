@@ -34,29 +34,32 @@ Two independent "no" signals:
 Same target (`famous_quotes` idx 52), their unmodified pipeline, base models (no chat template),
 num_steps=200, seed 42. `generates verbatim?` = does the logged greedy `output` equal the goal.
 
-| model | `success` | |y| | |x*| | ACR | memorized (ACR>1)? | generates verbatim? |
+`|x*|` = `num_free_tokens` = length of the shortest success prompt.
+
+| model | `success` | |y| | \|x*\| | ACR | memorized (ACR>1)? | generates verbatim? |
 |---|---|--:|--:|--:|---|---|
 | Pythia-12B   | True | 12 | 15 | 0.80 | No  | No  |
 | Llama-2-13B  | True | 17 | 9  | 1.89 | Yes | No  |
-| Llama-3.1-8B | True | 13 | ?  | <1   | No  | Yes |
+| Llama-3.1-8B | True | 13 | 34 | 0.38 | No  | Yes |
 | OLMo-2-13B   | True | 13 | 9  | 1.44 | Yes | Yes |
 
-(Llama-3.1-8B exact |x*|/ACR pending its results.json; ACR<1 + generates per the run log.)
-
 **Punchline.** `success` is True for all four and is uninformative: the (memorized?, generates?)
-cross-tab hits all four cells. The two off-diagonal cases are the damning ones for ACR:
-- **Llama-2-13B**: ACR 1.89 "memorized" but does **not** generate the quote (greedy → the Elf line).
-- **Llama-3.1-8B**: ACR < 1 "not memorized" but **does** generate the quote.
+cross-tab hits all four cells. Worse, **ACR and actual generation have no monotone relationship** —
+the two models that generate the quote have ACRs 0.38 and 1.44; the two that don't have 0.80 and 1.89.
+The off-diagonal cases are damning:
+- **Llama-2-13B**: ACR 1.89 (highest, "most memorized") but does **not** generate the quote (greedy → the Elf line).
+- **Llama-3.1-8B**: ACR 0.38 (lowest, "least memorized") but **does** generate the quote cleanly.
 
-So on this quote ACR's "memorized" label is *anti-correlated* with actual verbatim generation. This is
-a single-quote *illustration*, not a statistical claim — the systematic version is the probabilistic
-measure (below) run over the set. It is, however, the cleanest motivation for a graded,
-generation-faithful measure: the binary teacher-forced `success` collapses four very different
-situations into one label, and even the ACR>1 threshold dissociates from real extractability.
+So on this quote ACR's "memorized" label is *uninformative about — even inverted from* — verbatim
+extractability under generation. This is a single-quote *illustration*, not a statistical claim — the
+systematic version is the probabilistic measure (below) run over the set. It is, however, the cleanest
+motivation for a graded, generation-faithful measure: the binary teacher-forced `success` collapses
+four very different situations into one label, and even the ACR>1 threshold dissociates from real
+extractability.
 
 Free no-prompt baseline already in `results.json`: `loss_of_target_str` is the quote's unconditional
 per-token NLL, so no-prompt geometric-mean per-token prob = exp(-loss): Pythia 0.19, Llama-2 0.39,
-OLMo 0.23 — all far below a 0.9 bar unconditionally, so the GCG prompt's job is to lift
+Llama-3.1 0.21, OLMo 0.23 — all far below a 0.9 bar unconditionally, so the GCG prompt's job is to lift
 P(suffix|prompt); our measure quantifies by how much.
 
 ## What `success` actually means (and doesn't)
