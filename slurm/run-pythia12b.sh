@@ -19,8 +19,10 @@ cd /home/users/afcoop/acr-memorization      # where you cloned the fork (branch:
 # Override the quote with: DATA_IDX=N sbatch ... ; default 52 = Gretzky.
 DATA_IDX="${DATA_IDX:-52}"
 B="${B:-0.9}"           # success threshold b: P(target|prompt) >= b**T (sweep with B=0.95 sbatch ...)
+DATASET="${DATASET:-famous_quotes}"   # override DATASET=custom_quotes for the separate quote set
 
 python prompt-minimization-main.py \
   --config-name promptmin_pythia12b_famousquotes \
+  dataset="${DATASET}" \
   data_idx="${DATA_IDX}" \
   b="${B}"

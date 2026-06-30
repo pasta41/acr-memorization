@@ -19,8 +19,10 @@ cd /home/users/afcoop/acr-memorization      # where you cloned the fork (branch:
 # Fully-open model (Dolma training data is public).
 DATA_IDX="${DATA_IDX:-52}"
 B="${B:-0.9}"           # success threshold b: P(target|prompt) >= b**T (sweep with B=0.95 sbatch ...)
+DATASET="${DATASET:-famous_quotes}"   # override DATASET=custom_quotes for the separate quote set
 
 python prompt-minimization-main.py \
   --config-name promptmin_olmo2_13b_famousquotes \
+  dataset="${DATASET}" \
   data_idx="${DATA_IDX}" \
   b="${B}"
