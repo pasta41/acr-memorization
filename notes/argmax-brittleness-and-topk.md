@@ -182,6 +182,50 @@ i.e. post-process the logits (not argmax) → top-k → renorm → read the targ
 (A coarser binary proxy — "is `y_t` in the top-k at each step?" — is what `test_topk_reachability.py`
 does now; `P_k` is the graded probability version and is what we actually want.)
 
+## GCG loss ⟺ probability threshold (full derivation, no skipped steps)
+
+The threshold success criterion `P(suffix|prompt) ≥ b^T` is *identically* a threshold on GCG's own
+loss. GCG minimizes the **mean per-token cross-entropy** over the T target tokens
+(their `F.cross_entropy(..., reduction='mean')`):
+
+    loss = −(1/T) · Σ_{t=1}^{T} log p(y_t | prompt, y_{<t})                      (1)
+
+The teacher-forced extraction probability of the target is the product of the per-token conditionals:
+
+    P(suffix | prompt) = ∏_{t=1}^{T} p(y_t | prompt, y_{<t})
+                       = exp( Σ_{t=1}^{T} log p(y_t | prompt, y_{<t}) )          (2)
+
+From (1), multiply both sides by −T:
+
+    Σ_{t=1}^{T} log p(y_t | prompt, y_{<t}) = −T · loss                          (3)
+
+Substitute (3) into (2):
+
+    P(suffix | prompt) = exp(−T · loss)                                          (4)
+
+Now apply the threshold and simplify, one step at a time:
+
+    P(suffix | prompt) ≥ b^T
+    exp(−T · loss)     ≥ b^T                  [substitute (4)]
+    ln( exp(−T·loss) ) ≥ ln( b^T )            [ln is strictly increasing ⇒ inequality direction preserved]
+    −T · loss          ≥ T · ln b             [ln(e^x) = x ; ln(b^T) = T·ln b]
+    −loss              ≥ ln b                 [divide both sides by T > 0 ⇒ direction preserved]
+    loss               ≤ −ln b                [multiply both sides by −1 ⇒ direction flips]
+
+Therefore:
+
+    P(suffix|prompt) ≥ b^T   ⟺   loss ≤ −ln b                                    (5)
+
+Equivalently, the **geometric-mean per-token probability** is `P^{1/T} = exp(−loss)`, so the same rule
+reads `exp(−loss) ≥ b ⟺ loss ≤ −ln b` — "average per-token probability ≥ b."
+
+For b = 0.9: −ln(0.9) ≈ 0.10536 nats, so "success" = GCG's mean-CE loss ≤ 0.105.
+
+The T's cancel ⇒ a **length-independent bound on GCG's loss** (the `b^T` form is exactly what
+length-normalizes it, giving a per-token bar comparable across targets of different T). The
+geometric-mean form matches GCG's `mean` reduction; a **min-per-token** rule would not (mean reduction
+can sacrifice a single token), so min-per-token is a reported *diagnostic*, not the success test.
+
 ## Relation to the probabilistic-extraction framework
 
 ACR/GCG is the **brittle argmax point-estimate** of verbatim reachability. `P_k(y|x)` is the
@@ -191,13 +235,33 @@ probability model as the broader framework — but evaluated on the **single exa
 ACR says `success` on a knife-edge `k=1` prompt that is longer than the quote and doesn't even
 generate it; `P_k` instead reports a graded verbatim extraction probability under top-k sampling.
 
-## Next experiments
+## Finalized design — step 1 (probabilistic ACR via a loss threshold)
 
-1. Extend `test_topk_reachability.py` to compute **`P_k(y | prompt)`** (top-k renormalized path
-   probability) and, per target position, the target token's **renormalized prob + rank**, evaluated
-   on the **GCG-found prompt** (not just the self-prefix). Sweep `k`. `k=1` should reproduce the
-   argmax `success`; watch how fast `P_k` rises (and the knife-edge: rank-1 by a tiny margin).
-2. Compare argmax-`success` vs `P_k` across the four models (Pythia-12B, Llama-2-13B, Llama-3.1-8B,
-   OLMo-2-13B) on Gretzky. One figure = the critique + the verbatim-probabilistic measure.
-3. (Later) report `P_k` vs `k` curves / pick a principled `k`; consider `P_k` of the target under a
-   *natural* prompt, not just the GCG prompt.
+Decisions (this branch):
+- **Base distribution** (full softmax, temperature 1), fp32, sum-logprobs-then-exp. No top-k yet
+  (top-k renormalized variant is later).
+- **Report (graded):** for the success/best prompt — GCG mean-CE `loss` *and* the teacher-forced
+  extraction probability `P(suffix|prompt) = exp(−T·loss)`.
+- **Binarize (for ACR):** success ⟺ `P(suffix|prompt) ≥ b^T` ⟺ `loss ≤ −ln b`. This binary drives the
+  length search and yields an **adjusted ACR = T / |x*|** (|x*| = shortest prompt length achieving
+  success). **Print the ACR in the output/log.**
+- **Config knob `b`**, default **0.9** (⇒ loss bar ≈ 0.105 nats). Sweepable post-hoc.
+- **Keep the length search** (ACR-comparability with the paper).
+- **Early-quit (only memorization, ACR>1 ⟺ |x*|<T, matters here):** when grow-on-failure would set the
+  next length ≥ T, run **one extra round at T−1** instead, then quit. T−1 fails → "not memorized at b";
+  T−1 succeeds → memorized, and the existing shrink-by-1-on-success finds the shortest |x*|. Relies on
+  rough monotonicity of success in prompt length; with shrink-on-success this captures all length-<T
+  fill-ins the crude +5 step would skip. Wastes ≤ a few boundary rounds — acceptable.
+
+Implementation (three small changes on the branch):
+1. `miniprompt.py` success: replace `check_output_with_hard_tokens` with the `loss ≤ −ln b` test (base
+   dist, fp32; reuse the `verbatim_probabilistic/scoring.py` logic).
+2. `gcg.py` inner early-stop: break when `loss ≤ −ln b` instead of `match.all()`.
+3. `miniprompt.py` outer loop: the T−1-then-quit early-exit; thread `b` through the config; log `loss`,
+   `P(suffix|prompt)`, and the adjusted ACR.
+
+**Step 2 (separate, later):** raise the GCG step budget (`num_steps`) as its own monotone axis — do NOT
+combine with step 1 (avoid confounding the criterion change with the budget change).
+
+**Later:** top-k renormalized `P_k` + per-position rank/margin diagnostics; natural-prefix contrast
+(quote given a real cue, vs the adversarial GCG prompt).
