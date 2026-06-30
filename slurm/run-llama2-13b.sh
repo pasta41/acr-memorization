@@ -10,7 +10,7 @@
 
 # --- confirm these two lines match the cluster ---
 source /home/groups/deho/afcoop/miniconda3/etc/profile.d/conda.sh
-conda activate acr                          # pinned env: transformers==4.38.2 (Llama-2 works here)
+conda activate acr                          # single env: transformers>=4.47 covers all 4 models
 cd /home/users/afcoop/acr-memorization      # where you cloned the fork (branch: topk-reachability)
 # -------------------------------------------------
 

@@ -10,7 +10,7 @@
 
 # --- confirm these two lines match the cluster ---
 source /home/groups/deho/afcoop/miniconda3/etc/profile.d/conda.sh
-conda activate acr-modern                   # MODERN env: transformers>=4.47 (see requirements-modern.txt)
+conda activate acr                          # single env: transformers>=4.47 covers all 4 models
 cd /home/users/afcoop/acr-memorization      # where you cloned the fork (branch: topk-reachability)
 # -------------------------------------------------
 
