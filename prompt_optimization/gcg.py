@@ -10,6 +10,7 @@ developed in collaboration by: Avi Schwarzschild and Zhili Feng and Pratyush Mai
 """
 
 import logging
+import math
 
 import torch
 import torch.nn.functional as F
@@ -73,8 +74,10 @@ def optimize_gcg(model, input_ids, input_slice, free_token_slice, target_slice, 
             output_single = model(input_ids=input_ids.unsqueeze(0))
             match = (output_single.logits[0, loss_slice].argmax(-1) == input_ids[target_slice].squeeze())
         cur_loss = loss[best_candidate].mean().item()
+        # exp(-loss) = geometric-mean per-token prob; success threshold is exp(-loss) >= b.
         logging.info(f"step: {i:<4} | "
                      f"loss: {cur_loss:0.6f} | "
+                     f"exp(-loss): {math.exp(-cur_loss):0.4f} | "
                      f"{match.int().tolist()} | "
                      )
         # Success / early-stop: probabilistic threshold (mean-CE <= -ln b) if provided,
