@@ -19,7 +19,7 @@ cd /home/users/afcoop/acr-memorization      # where you cloned the fork (branch:
 DATA_IDX="${DATA_IDX:-1}"
 DATASET="${DATASET:-custom_quotes}"
 BVALS="${BVALS:-[0.7,0.75]}"          # b-sweep, low end = easiest success; override e.g. BVALS=[0.9]
-NSTEPS="${NSTEPS:-1000}"              # GCG steps/length; raise to push more successes
+NSTEPS="${NSTEPS:-2000}"              # GCG steps/length; raise to push more successes
 
 python prompt-minimization-main.py \
   --config-name promptmin_llama2_13b_famousquotes \

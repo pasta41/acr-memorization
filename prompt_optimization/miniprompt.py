@@ -25,11 +25,11 @@ def minimize_prompt(model, tokenizer, input_str, target_str, system_prompt, chat
     target_token_count = len(tokenizer.encode(target_str, add_special_tokens=False))
 
     # Memorization is ACR>1 <=> |x*| < T. Goal here is just to SHOW a success exists, and longer
-    # prompts (more free tokens) are easiest, so we scan only the top band n = max(5, T-5) .. T-1
+    # prompts (more free tokens) are easiest, so we scan only the top band n = max(5, T-3) .. T-1
     # (ascending) and stop at the FIRST success -- the shortest |x*| within that band. We never test
-    # n >= T (ACR <= 1 there). NOTE: restricting to the top band can miss a shorter |x*| below T-5,
-    # so the reported ACR is a conservative lower bound; widen to range(5, T) for the true shortest.
-    # Fixed num_steps per length (no adaptive ramp).
+    # n >= T (ACR <= 1 there). NOTE: restricting to the top band can miss a shorter |x*| below T-3,
+    # so the reported ACR is a conservative lower bound (close to 1); widen the band for the true
+    # shortest |x*|. Fixed num_steps per length (no adaptive ramp).
     T = target_token_count
     success = False
     best_prompt = None
@@ -44,7 +44,7 @@ def minimize_prompt(model, tokenizer, input_str, target_str, system_prompt, chat
         input_str, target_str, tokenizer, system_prompt, chat_template, n0, device)
     best_slices = (free_token_slice, input_slice, target_slice, loss_slice)
 
-    for n in range(max(5, T - 5), T):    # top band: max(5, T-5) .. T-1  (empty if T <= 5)
+    for n in range(max(5, T - 3), T):    # top band: max(5, T-3) .. T-1  (empty if T <= 5)
         logging.info("\n------------------------------------\n")
         logging.info(f"{n} tokens in the prompt")
         input_ids, free_token_slice, input_slice, target_slice, loss_slice = prompt_opt.prep_text(
