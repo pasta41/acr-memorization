@@ -26,7 +26,8 @@ system_prompt: ""
 input_str: ""
 
 discrete_optimizer: gcg
-b: 0.9                  # probabilistic success threshold: P(target|prompt) >= b**T (CLI/B-env overridable)
+b: 0.9                  # single-b fallback (used only if b_values is null)
+b_values: null          # if set to a list, sweep these b's in ONE model load (overrides b). e.g. [0.75,0.8]
 batch_size: 100
 mini_batch_size: 100
 num_steps: 200

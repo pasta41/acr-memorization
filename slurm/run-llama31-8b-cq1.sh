@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=acr-pythia12b
-#SBATCH --output=acr-pythia12b.log
-#SBATCH --error=acr-pythia12b.err
+#SBATCH --job-name=acr-llama31-8b-cq1
+#SBATCH --output=acr-llama31-8b-cq1.log
+#SBATCH --error=acr-llama31-8b-cq1.err
 #SBATCH --partition=deho
 #SBATCH --gres=gpu:1
 #SBATCH -c 8
@@ -14,15 +14,14 @@ conda activate acr                          # single env: transformers>=4.47 cov
 cd /home/users/afcoop/acr-memorization      # where you cloned the fork (branch: topk-reachability)
 # -------------------------------------------------
 
-# Famous-quotes ACR, probabilistic relaxation (success = P(suffix|prompt) >= b**T) on
-# Pythia-12B base. --gres=gpu:1 -> one visible GPU -> no device_map sharding.
-# Override the quote with: DATA_IDX=N sbatch ... ; default 52 = Gretzky.
-DATA_IDX="${DATA_IDX:-52}"
-DATASET="${DATASET:-famous_quotes}"   # override DATASET=custom_quotes for the separate quote set
+# Probabilistic ACR (success = P(suffix|prompt) >= b**T), b-sweep, on Llama-3.1-8B base.  Gated on HF (Llama token).
+# custom_quotes idx 1: "You're allowed to think about the worst possible scenario, but then you have to go do something about it."
+DATA_IDX="${DATA_IDX:-1}"
+DATASET="${DATASET:-custom_quotes}"
 BVALS="${BVALS:-[0.75,0.775,0.8,0.825,0.85]}"   # b-sweep in ONE model load; override e.g. BVALS=[0.9]
 
 python prompt-minimization-main.py \
-  --config-name promptmin_pythia12b_famousquotes \
+  --config-name promptmin_llama31_8b_famousquotes \
   dataset="${DATASET}" \
   data_idx="${DATA_IDX}" \
   b_values="${BVALS}"

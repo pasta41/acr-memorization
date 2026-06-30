@@ -60,94 +60,97 @@ def main(cfg):
         cfg.target_str = target_str
         logging.info(f"Target string selected from dataset, cfg.targer_str: {cfg.target_str}")
 
-    # Optimization setup
-    optimization_args = {"discrete_optimizer": cfg.discrete_optimizer,
-                         "num_steps": cfg.num_steps,
-                         "lr": cfg.lr,
-                         "optimizer": cfg.optimizer,
-                         "batch_size": cfg.batch_size,
-                         "mini_batch_size": cfg.mini_batch_size,
-                         "topk": cfg.topk,
-                         "b": cfg.get("b", 0.9)}  # probabilistic success threshold: P(target|prompt) >= b**T
-
-    solution = prompt_opt.minimize_prompt(model, tokenizer, input_str, target_str, system_prompt, chat_template, device,
-                                          optimization_args, max_tokens=cfg.max_tokens)
-    input_slice, target_slice, loss_slice, input_ids = (solution["input_slice"],
-                                                        solution["target_slice"],
-                                                        solution["loss_slice"],
-                                                        solution["input_ids"])
-
-    # Test the prompt and log the new generation with the target string
-    if solution["success"] is True:
-        logging.info(f"Hard tokens returned:")
-        optimized_ids = solution["input_ids"]
-        output = model.generate(input_ids=optimized_ids[input_slice].unsqueeze(0), max_new_tokens=20,
-                                do_sample=False)
-        optimal_prompt = tokenizer.decode(optimized_ids[input_slice], skip_special_tokens=True)
-        logging.info(f"solution: {optimal_prompt}")
-        logging.info(f"goal: {tokenizer.decode(input_ids[target_slice], skip_special_tokens=True)}")
-        logging.info(f"output: {tokenizer.decode(output[0, target_slice], skip_special_tokens=True)}")
-
-        # Adjusted (probabilistic) ACR = T / |x*|. With the early-quit cap (|x*| < T),
-        # any success is memorization (ACR > 1).
-        target_length = target_slice.stop - target_slice.start
-        adjusted_acr = target_length / solution["num_free_tokens"]
-        logging.info(f"adjusted ACR = T/|x*| = {target_length}/{solution['num_free_tokens']} = "
-                     f"{adjusted_acr:.4f}  (b={solution.get('b')}, "
-                     f"P(suffix|prompt)={solution.get('suffix_prob')}, mean_ce={solution.get('mean_ce')})")
-
-        # Calculate loss for the target_ids
-        with torch.no_grad():
-            ids_for_loss_computation = input_ids[target_slice].unsqueeze(0).to(device)
-            outputs = model(ids_for_loss_computation, labels=ids_for_loss_computation)
-        loss_of_target_str = outputs.loss.item()
-
-        with torch.no_grad():
-            ids_for_loss_computation = input_ids[input_slice].unsqueeze(0).to(device)
-            outputs = model(ids_for_loss_computation, labels=ids_for_loss_computation)
-        loss_of_prompt = outputs.loss.item()
-
-        solution["input_ids"] = input_ids.tolist()
-
-        # Compile data for saving to a JSON file
-        results = {
-            "target_length": target_slice.stop - target_slice.start,
-            "acr": adjusted_acr,
-            "target_str": target_str,
-            "loss_of_target_str": loss_of_target_str,
-            "loss_of_prompt": loss_of_prompt,
-            "success": True,
-            "optimal_prompt": optimal_prompt,
-        }
-        for k, v in solution.items():
-            if isinstance(v, slice):
-                results[k] = (v.start, v.stop)
-            else:
-                results[k] = v
+    # b values to evaluate. A single model load can sweep several thresholds: set b_values
+    # (a list) to sweep, else fall back to the scalar b. Each b is an independent search.
+    b_values = cfg.get("b_values", None)
+    if b_values is None:
+        b_values = [cfg.get("b", 0.9)]
     else:
-        logging.info(f"NOT memorized at b={solution.get('b')}: no prompt with < T={solution.get('target_token_count')} "
-                     f"tokens reached P(suffix|prompt) >= b**T (ACR <= 1).")
-        results = {"success": False,
-                   "acr": None,
-                   "num_free_tokens": solution["num_free_tokens"],
-                   "target_str": target_str,
-                   "target_length": target_slice.stop - target_slice.start,
-                   "b": solution.get("b"),
-                   "target_token_count": solution.get("target_token_count"),
-                   }
+        b_values = list(b_values)
+    base_num_steps = cfg.num_steps          # minimize_prompt mutates num_steps (1.2x ramp) -> reset per b
+    cfg_dict = OmegaConf.to_container(cfg, resolve=True)
 
-    for k, v in OmegaConf.to_container(cfg, resolve=True).items():
-        results[f"cfg_{k}"] = v
+    def run_one_b(b):
+        # Fresh optimization_args each b (num_steps reset so the ramp doesn't carry over).
+        optimization_args = {"discrete_optimizer": cfg.discrete_optimizer,
+                             "num_steps": base_num_steps,
+                             "lr": cfg.lr,
+                             "optimizer": cfg.optimizer,
+                             "batch_size": cfg.batch_size,
+                             "mini_batch_size": cfg.mini_batch_size,
+                             "topk": cfg.topk,
+                             "b": b}  # probabilistic success threshold: P(target|prompt) >= b**T
+        solution = prompt_opt.minimize_prompt(model, tokenizer, input_str, target_str, system_prompt,
+                                              chat_template, device, optimization_args, max_tokens=cfg.max_tokens)
+        input_slice, target_slice, loss_slice, input_ids = (solution["input_slice"], solution["target_slice"],
+                                                            solution["loss_slice"], solution["input_ids"])
 
-    # log data to the console
-    for key, value in results.items():
-        logging.info(f"{key}: {value}")
-    results["time"] = now()
+        if solution["success"] is True:
+            logging.info("Hard tokens returned:")
+            optimized_ids = solution["input_ids"]
+            output = model.generate(input_ids=optimized_ids[input_slice].unsqueeze(0), max_new_tokens=20,
+                                    do_sample=False)
+            optimal_prompt = tokenizer.decode(optimized_ids[input_slice], skip_special_tokens=True)
+            logging.info(f"solution: {optimal_prompt}")
+            logging.info(f"goal: {tokenizer.decode(input_ids[target_slice], skip_special_tokens=True)}")
+            logging.info(f"output: {tokenizer.decode(output[0, target_slice], skip_special_tokens=True)}")
 
-    # Save the data to a JSON file
-    filename = os.path.join(HydraConfig.get().run.dir, f"results.json")
-    with open(filename, 'w') as json_file:
-        json.dump(results, json_file)
+            # Adjusted (probabilistic) ACR = T / |x*|. With |x*| < T (the search only keeps
+            # successes shorter than the target), any success here is memorization (ACR > 1).
+            target_length = target_slice.stop - target_slice.start
+            adjusted_acr = target_length / solution["num_free_tokens"]
+            logging.info(f"adjusted ACR = T/|x*| = {target_length}/{solution['num_free_tokens']} = "
+                         f"{adjusted_acr:.4f}  (b={b}, P(suffix|prompt)={solution.get('suffix_prob')}, "
+                         f"mean_ce={solution.get('mean_ce')})")
+
+            with torch.no_grad():
+                ids_t = input_ids[target_slice].unsqueeze(0).to(device)
+                loss_of_target_str = model(ids_t, labels=ids_t).loss.item()
+            with torch.no_grad():
+                ids_p = input_ids[input_slice].unsqueeze(0).to(device)
+                loss_of_prompt = model(ids_p, labels=ids_p).loss.item()
+
+            solution["input_ids"] = input_ids.tolist()
+            results = {
+                "target_length": target_length,
+                "acr": adjusted_acr,
+                "target_str": target_str,
+                "loss_of_target_str": loss_of_target_str,
+                "loss_of_prompt": loss_of_prompt,
+                "success": True,
+                "optimal_prompt": optimal_prompt,
+            }
+            for k, v in solution.items():
+                results[k] = (v.start, v.stop) if isinstance(v, slice) else v
+        else:
+            logging.info(f"NOT memorized at b={b}: no prompt with < T={solution.get('target_token_count')} "
+                         f"tokens reached P(suffix|prompt) >= b**T (ACR <= 1).")
+            results = {"success": False, "acr": None, "num_free_tokens": solution["num_free_tokens"],
+                       "target_str": target_str, "target_length": target_slice.stop - target_slice.start,
+                       "b": solution.get("b"), "target_token_count": solution.get("target_token_count")}
+
+        for k, v in cfg_dict.items():
+            results[f"cfg_{k}"] = v
+        results["b"] = b            # the actual threshold used for this sweep point
+        results["time"] = now()
+        for key, value in results.items():
+            logging.info(f"{key}: {value}")
+        return results
+
+    all_results = []
+    for b in b_values:
+        logging.info(f"\n================= b = {b} =================")
+        all_results.append(run_one_b(b))
+
+    run_dir = HydraConfig.get().run.dir
+    if len(all_results) == 1:
+        # single b: keep the original results.json (one dict)
+        with open(os.path.join(run_dir, "results.json"), "w") as json_file:
+            json.dump(all_results[0], json_file)
+    else:
+        # sweep: one file, a list of per-b result dicts
+        with open(os.path.join(run_dir, "results_sweep.json"), "w") as json_file:
+            json.dump(all_results, json_file)
 
 
 if __name__ == "__main__":

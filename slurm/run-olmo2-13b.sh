@@ -18,11 +18,11 @@ cd /home/users/afcoop/acr-memorization      # where you cloned the fork (branch:
 # OLMo-2-13B BASE. OLMo2 architecture needs transformers>=4.47; the single acr env covers it.
 # Fully-open model (Dolma training data is public).
 DATA_IDX="${DATA_IDX:-52}"
-B="${B:-0.9}"           # success threshold b: P(target|prompt) >= b**T (sweep with B=0.95 sbatch ...)
 DATASET="${DATASET:-famous_quotes}"   # override DATASET=custom_quotes for the separate quote set
+BVALS="${BVALS:-[0.75,0.775,0.8,0.825,0.85]}"   # b-sweep in ONE model load; override e.g. BVALS=[0.9]
 
 python prompt-minimization-main.py \
   --config-name promptmin_olmo2_13b_famousquotes \
   dataset="${DATASET}" \
   data_idx="${DATA_IDX}" \
-  b="${B}"
+  b_values="${BVALS}"
