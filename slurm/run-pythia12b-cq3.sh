@@ -14,14 +14,16 @@ conda activate acr                          # single env: transformers>=4.47 cov
 cd /home/users/afcoop/acr-memorization      # where you cloned the fork (branch: topk-reachability)
 # -------------------------------------------------
 
-# Probabilistic ACR (success = P(suffix|prompt) >= b**T), b-sweep, on Pythia-12B base.
+# Probabilistic ACR (success = P(suffix|prompt) >= b**T), scan n=5..T-1, on Pythia-12B base.
 # custom_quotes idx 3: "When you work for something, no matter how hard it is, no matter how time consuming, how draining it is, you work for it."
 DATA_IDX="${DATA_IDX:-3}"
 DATASET="${DATASET:-custom_quotes}"
-BVALS="${BVALS:-[0.75,0.775,0.8,0.825,0.85]}"   # b-sweep in ONE model load; override e.g. BVALS=[0.9]
+BVALS="${BVALS:-[0.7,0.75]}"          # b-sweep, low end = easiest success; override e.g. BVALS=[0.9]
+NSTEPS="${NSTEPS:-1000}"              # GCG steps/length; raise to push more successes
 
 python prompt-minimization-main.py \
   --config-name promptmin_pythia12b_famousquotes \
   dataset="${DATASET}" \
   data_idx="${DATA_IDX}" \
+  num_steps="${NSTEPS}" \
   b_values="${BVALS}"
