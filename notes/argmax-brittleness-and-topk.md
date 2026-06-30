@@ -62,6 +62,40 @@ per-token NLL, so no-prompt geometric-mean per-token prob = exp(-loss): Pythia 0
 Llama-3.1 0.21, OLMo 0.23 — all far below a 0.9 bar unconditionally, so the GCG prompt's job is to lift
 P(suffix|prompt); our measure quantifies by how much.
 
+## The no-prompt baseline (`loss_of_target_str`)
+
+`loss_of_target_str` (in every `results.json`) is the model's per-token loss on the **quote alone**,
+no prompt. The main script computes it as:
+```python
+ids = input_ids[target_slice].unsqueeze(0)   # JUST the quote's tokens, nothing in front
+outputs = model(ids, labels=ids)
+loss_of_target_str = outputs.loss.item()
+```
+The GCG free tokens are sliced off, and there is no BOS (`prep_text` uses `add_special_tokens=False`).
+It's a single teacher-forced pass over the bare quote — *scoring*, not generation.
+
+Token-by-token (HF shifts so `logits[:-1]` predict `labels[1:]`):
+- the **first quote token is the seed** — fed at position 0, **not scored** (nothing precedes it);
+- `y1` scored as `p(y1 | y0)`, `y2` as `p(y2 | y0 y1)`, …, `y_{T-1}` as `p(y_{T-1} | y0…y_{T-2})`.
+
+So each quote token is conditioned only on the **earlier part of the quote itself**. `exp(-loss)` =
+the **geometric-mean per-token probability** of the quote with no external prompt. Observed values
+(Gretzky): Pythia 0.19, Llama-2 0.39, Llama-3.1 0.21, OLMo 0.23 — all far below a 0.9 bar
+unconditionally. This is the floor the GCG prompt has to lift; `P(suffix|prompt)` measures by how much.
+
+Effectively it's **seeded by the quote's own first token** — a very weak, 1-token, in-distribution
+cue — not a true zero-cue measurement.
+
+**Caveat (it is NOT the natural-prefix baseline):** `loss_of_target_str` is the **no-prompt /
+self-conditioned** baseline, not the quote-given-a-real-preceding-cue baseline (the discoverable-
+extraction setup). Two mismatches make it not directly comparable to our with-prompt `P(suffix|prompt)`:
+- it averages over **T−1** tokens (the first quote token contributes no loss), whereas
+  `P(suffix|prompt)` scores all **T** suffix tokens;
+- its first token is **unconditioned**, whereas ours is conditioned on the prompt.
+
+So treat it as a rough *anchor* (unconditional predictability of the quote), and compute the true
+natural-prefix contrast separately if we want an apples-to-apples comparison.
+
 ## What `success` actually means (and doesn't)
 
 `success` is a narrow internal flag: **"GCG found *some* prompt, at *some* length it tried, whose
