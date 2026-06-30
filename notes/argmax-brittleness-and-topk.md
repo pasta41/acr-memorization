@@ -84,36 +84,53 @@ number is an artifact of the coarse search + the 200-step (×1.2-on-failure) bud
 in optimizer effort: more budget can only shorten |x*| / raise ACR (better solver), never the
 reverse. Whatever budget is chosen must be applied symmetrically across models and the matched null.
 
-## The relaxation: reachability *with probability*, not brittle argmax
+## The relaxation: VERBATIM but PROBABILISTIC (top-k renormalized path probability)
 
-Coarsest → most faithful; pick deliberately:
+This is **verbatim** (a single fixed exact target — one path), just made **probabilistic**. NOT
+near-verbatim: no Levenshtein/Hamming ball, no beam search, **no k-CBS** (that's the near-verbatim
+tool). We evaluate the one target path's probability under the **renormalized top-k distribution**.
 
-1. **Per-position top-k (teacher-forced)** — is the target token in the top-k at each step given the
-   true prefix? (What `test_topk_reachability.py` does now.) Widens the margin (top-k vs top-1) so
-   less brittle, but still a threshold, still teacher-forced, and a coarse proxy: every position can
-   be in-top-k while the *joint* probability is tiny.
-2. **Sequence probability** `P(y | prompt) = ∏ₜ p(yₜ | prompt, y_{<ₜ})` — smooth, threshold-free, the
-   honest "reachable with probability p". bf16 jitter that flips an argmax barely moves a
-   probability. This is the brittleness-free quantity.
-3. **Top-k-restricted reachable mass (k-CBS LB)** — does the renormalized top-k tree actually contain
-   the target as a reachable path, and with how much mass? Generation-faithful (accounts for the
-   autoregressive feedback #1 ignores); gives LB/UB.
+**The measure.** Fix a `k`. Teacher-force the target `y` given prompt `x`. At each step `t`:
+1. take the full next-token distribution `p(· | x, y_{<t})`,
+2. keep the **top-k** tokens and **renormalize** them to sum to 1:
+   `p̃(v) = p(v) / Σ_{v'∈top-k} p(v')` for `v ∈ top-k`, else `0`,
+3. read off `p̃(y_t)` — renormalized prob of the *true* next target token (**0 if `y_t` ∉ top-k**).
 
-## Bridge to the probabilistic-extraction / k-CBS framework
+Verbatim top-k extraction probability:
+```
+P_k(y | x) = ∏_t p̃(y_t)
+```
+i.e. post-process the logits (not argmax) → top-k → renorm → read the target token's prob → multiply.
 
-ACR/GCG is the **brittle argmax point-estimate** of reachability. The k-CBS framework is the
-**probabilistic, bounded** version of the same question. The Gretzky case is a clean motivating
-example: ACR says `success` on a knife-edge prompt that is longer than the quote and doesn't
-generate it; a reachability-with-probability measure would instead report the target's probability /
-top-k reachable mass — graded, robust, and honest about the brittleness ACR hides.
+**Properties:**
+- **Generalizes their `success`.** At `k=1`, `P_1 = 1` iff `y` is the argmax at every step (their
+  teacher-forced `success`), else `0`. Argmax-success is the brittle `k=1` corner of this.
+- **Verbatim** — single fixed path; no ball, no search, no k-CBS.
+- **Probabilistic / robust** — graded probability, not a knife-edge; bf16 jitter barely moves `P_k`
+  unless a token sits right on the top-k boundary.
+- **Interpretation** — `P_k(y|x)` is the probability of emitting `y` *verbatim under top-k sampling*
+  from `x`; equivalently, the mass of the single target leaf in the renormalized top-k tree.
+  `P_k = 0` cleanly means "not verbatim-reachable under top-k" (the target leaves the top-k somewhere).
+
+(A coarser binary proxy — "is `y_t` in the top-k at each step?" — is what `test_topk_reachability.py`
+does now; `P_k` is the graded probability version and is what we actually want.)
+
+## Relation to the probabilistic-extraction framework
+
+ACR/GCG is the **brittle argmax point-estimate** of verbatim reachability. `P_k(y|x)` is the
+**probabilistic** version of the *same verbatim question*, using the same renormalized-top-k
+probability model as the broader framework — but evaluated on the **single exact target path**
+(verbatim), not over a near-verbatim ball (which is the k-CBS regime). The Gretzky case motivates it:
+ACR says `success` on a knife-edge `k=1` prompt that is longer than the quote and doesn't even
+generate it; `P_k` instead reports a graded verbatim extraction probability under top-k sampling.
 
 ## Next experiments
 
-1. Extend `test_topk_reachability.py` to report, per target position, the **target's probability and
-   rank** (not just in/out of top-k) — and the **joint sequence probability** — evaluated on the
-   *GCG-found prompt* (not just the self-prefix). Should make the knife-edge visible (rank-1 by a
-   ~1e-5 margin).
-2. Compute `P(target | GCG-prompt)` and compare argmax-success vs probability-mass across the four
-   models (Pythia-12B, Llama-2-13B, Llama-3.1-8B, OLMo-2-13B). One figure = critique + method.
-3. Full version: run the target through k-CBS from the GCG prompt → top-k reachable mass with bounds
-   (reframes ACR elicitation as the near-verbatim-mass question).
+1. Extend `test_topk_reachability.py` to compute **`P_k(y | prompt)`** (top-k renormalized path
+   probability) and, per target position, the target token's **renormalized prob + rank**, evaluated
+   on the **GCG-found prompt** (not just the self-prefix). Sweep `k`. `k=1` should reproduce the
+   argmax `success`; watch how fast `P_k` rises (and the knife-edge: rank-1 by a tiny margin).
+2. Compare argmax-`success` vs `P_k` across the four models (Pythia-12B, Llama-2-13B, Llama-3.1-8B,
+   OLMo-2-13B) on Gretzky. One figure = the critique + the verbatim-probabilistic measure.
+3. (Later) report `P_k` vs `k` curves / pick a principled `k`; consider `P_k` of the target under a
+   *natural* prompt, not just the GCG prompt.
