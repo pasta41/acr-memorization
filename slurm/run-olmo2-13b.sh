@@ -14,11 +14,13 @@ conda activate acr                          # single env: transformers>=4.47 cov
 cd /home/users/afcoop/acr-memorization      # where you cloned the fork (branch: topk-reachability)
 # -------------------------------------------------
 
-# Faithful famous-quotes ACR (their unmodified greedy/argmax pipeline) on
-# OLMo-2-13B BASE. OLMo2 architecture needs transformers>=4.47 -> acr-modern env.
+# Famous-quotes ACR, probabilistic relaxation (success = P(suffix|prompt) >= b**T) on
+# OLMo-2-13B BASE. OLMo2 architecture needs transformers>=4.47; the single acr env covers it.
 # Fully-open model (Dolma training data is public).
 DATA_IDX="${DATA_IDX:-52}"
+B="${B:-0.9}"           # success threshold b: P(target|prompt) >= b**T (sweep with B=0.95 sbatch ...)
 
 python prompt-minimization-main.py \
   --config-name promptmin_olmo2_13b_famousquotes \
-  data_idx="${DATA_IDX}"
+  data_idx="${DATA_IDX}" \
+  b="${B}"

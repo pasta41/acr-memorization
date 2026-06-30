@@ -14,11 +14,13 @@ conda activate acr                          # single env: transformers>=4.47 cov
 cd /home/users/afcoop/acr-memorization      # where you cloned the fork (branch: topk-reachability)
 # -------------------------------------------------
 
-# Faithful famous-quotes ACR (their unmodified greedy/argmax pipeline) on
+# Famous-quotes ACR, probabilistic relaxation (success = P(suffix|prompt) >= b**T) on
 # Pythia-12B base. --gres=gpu:1 -> one visible GPU -> no device_map sharding.
 # Override the quote with: DATA_IDX=N sbatch ... ; default 52 = Gretzky.
 DATA_IDX="${DATA_IDX:-52}"
+B="${B:-0.9}"           # success threshold b: P(target|prompt) >= b**T (sweep with B=0.95 sbatch ...)
 
 python prompt-minimization-main.py \
   --config-name promptmin_pythia12b_famousquotes \
-  data_idx="${DATA_IDX}"
+  data_idx="${DATA_IDX}" \
+  b="${B}"
