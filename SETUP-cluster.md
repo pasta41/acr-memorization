@@ -38,9 +38,14 @@ Fresh env, pinned to base's proven versions so torch matches the cluster CUDA:
 ```bash
 conda create -n acr python=3.11 -y
 conda activate acr                         # activate BEFORE pip
-pip install torch==2.6.0 transformers==4.50.0 accelerate==1.6.0 \
+pip install torch==2.6.0 transformers==4.50.0 accelerate==1.6.0 numpy==2.2.5 \
             hydra-core==1.3.2 omegaconf almost-unique-id sentencepiece protobuf
 ```
+
+NOTE: `numpy` is pinned to `2.2.5` (a version with a prebuilt wheel). Without a
+pin, pip grabs the newest numpy, finds no matching wheel, and tries to compile
+from source — which fails on this cluster's old system GCC (4.8.5; numpy needs
+GCC >= 9.3). Pinning to a wheeled version avoids any compiler.
 
 ## 3. Queue the runs with slurm
 
