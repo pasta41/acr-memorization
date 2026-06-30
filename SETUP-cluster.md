@@ -39,13 +39,14 @@ Fresh env, pinned to base's proven versions so torch matches the cluster CUDA:
 conda create -n acr python=3.11 -y
 conda activate acr                         # activate BEFORE pip
 pip install torch==2.6.0 transformers==4.50.0 accelerate==1.6.0 numpy==2.2.5 \
-            hydra-core==1.3.2 omegaconf almost-unique-id sentencepiece protobuf
+            sentencepiece==0.2.0 hydra-core==1.3.2 omegaconf almost-unique-id protobuf
 ```
 
-NOTE: `numpy` is pinned to `2.2.5` (a version with a prebuilt wheel). Without a
-pin, pip grabs the newest numpy, finds no matching wheel, and tries to compile
-from source — which fails on this cluster's old system GCC (4.8.5; numpy needs
-GCC >= 9.3). Pinning to a wheeled version avoids any compiler.
+NOTE: this cluster has an old toolchain (GCC 4.8.5, no `cmake`), so any package
+that falls back to a **source build** fails. Pin to versions that ship prebuilt
+wheels: `numpy==2.2.5` (newest numpy needs GCC >= 9.3 to compile) and
+`sentencepiece==0.2.0` (newest 0.2.1 has no wheel here and needs cmake). The
+rest (torch cu124, transformers, accelerate, etc.) already install as wheels.
 
 ## 2b. HF auth + pre-download models (login node)
 
