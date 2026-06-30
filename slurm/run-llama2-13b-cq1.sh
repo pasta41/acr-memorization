@@ -6,7 +6,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH -c 8
 #SBATCH --mem=96G
-#SBATCH --time=08:00:00
+#SBATCH --time=24:00:00
 
 # --- confirm these two lines match the cluster ---
 source /home/groups/deho/afcoop/miniconda3/etc/profile.d/conda.sh
