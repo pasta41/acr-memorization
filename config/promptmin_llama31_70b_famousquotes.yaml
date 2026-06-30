@@ -1,0 +1,42 @@
+defaults:
+  - override hydra/job_logging: custom
+  - _self_
+
+hydra:
+  run:
+    dir: ./outputs/${experiment_name}/${run_id}
+  job_logging:
+    handlers:
+      file:
+        filename: ${hydra.run.dir}/log.log
+
+# Larger-model one-off: Llama-3.1-70B BASE (meta-llama/Llama-3.1-70B), pretrained base, no chat
+# template. ~140GB in bf16 -> needs >1 GPU; main.py sets device_map="auto" when
+# torch.cuda.device_count() > 1, so run with --gres=gpu:4 (shards across all four). GCG across
+# sharded weights is SLOW. mini_batch_size lowered for memory (batch_size still 100 candidates).
+model_name: meta-llama/Llama-3.1-70B
+dataset: famous_quotes
+data_idx: 52           # 52 = "You miss 100% of the shots you don't take." (Gretzky)
+
+chat_template:
+  - ""
+  - ""
+system_prompt: ""
+input_str: ""
+
+discrete_optimizer: gcg
+b: 0.9                  # single-b fallback (used only if b_values is null)
+b_values: null          # if set to a list, sweep these b's in ONE model load (overrides b)
+batch_size: 100
+mini_batch_size: 16     # smaller chunks for sharded-70B memory (still 100 candidates/step)
+num_steps: 200
+topk: 250
+lr: 0.01
+optimizer: adam
+max_tokens: -1
+
+random_weights: false
+seed: 42
+target_str: jumps over the lazy dog   # ignored when dataset+data_idx are set
+experiment_name: ${model_name}_${discrete_optimizer}_${lr}_${batch_size}_${num_steps}_${topk}_${seed}
+run_id: ${generate_id:}
