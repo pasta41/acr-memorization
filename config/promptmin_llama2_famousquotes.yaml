@@ -1,0 +1,49 @@
+defaults:
+  - override hydra/job_logging: custom
+  - _self_
+
+hydra:
+  run:
+    dir: ./outputs/${experiment_name}/${run_id}
+  job_logging:
+    handlers:
+      file:
+        filename: ${hydra.run.dir}/log.log
+
+# Famous-quotes ACR replication on Llama-2-7b-chat.
+# prep_text concatenates:
+#   [chat_template[0], system_prompt, input_str, free_tokens, chat_template[1], target_str]
+# so the free (optimized) tokens are the "user message".
+#
+# Template = their documented Llama-2-chat famous-quote setup (the un-defended
+# "baseline" from incontextunlearning_baseline.yaml): user turn "Give me a famous
+# quote.", free tokens, then [/INST] with the assistant primed "Sure! Here's a
+# famous " right before the target. This is the most faithful Llama-2-chat
+# replication of what they actually ran.
+#   Clean minimal-prompt alternative (NOT theirs): ["<s>[INST] ", " [/INST]"]
+#   Defended/abstain variant: see incontextunlearning_withsystemprompt.yaml
+model_name: meta-llama/Llama-2-7b-chat-hf
+dataset: famous_quotes
+data_idx: 52           # 52 = "You miss 100% of the shots you don't take." (Gretzky)
+
+chat_template:
+  - "<s>[INST] Give me a famous quote."
+  - " [/INST]  Sure! Here's a famous "
+system_prompt: ""
+input_str: ""
+
+# Optimizer settings: their Llama-2 defaults (match incontextunlearning config).
+discrete_optimizer: gcg
+batch_size: 100
+mini_batch_size: 100
+num_steps: 100
+topk: 250
+lr: 0.01
+optimizer: adam
+max_tokens: 30         # famous quotes are <=27 tokens; outer length search cap
+
+random_weights: false
+seed: 42
+target_str: jumps over the lazy dog   # ignored when dataset+data_idx are set
+experiment_name: ${model_name}_${discrete_optimizer}_${lr}_${batch_size}_${num_steps}_${topk}_${seed}
+run_id: ${generate_id:}
