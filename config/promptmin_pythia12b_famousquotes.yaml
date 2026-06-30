@@ -1,0 +1,44 @@
+defaults:
+  - override hydra/job_logging: custom
+  - _self_
+
+hydra:
+  run:
+    dir: ./outputs/${experiment_name}/${run_id}
+  job_logging:
+    handlers:
+      file:
+        filename: ${hydra.run.dir}/log.log
+
+# Faithful famous-quotes ACR replication at the TOP of their scaling curve.
+# Pythia-12B is a BASE (pretrained) autoregressive LM -- NOT a chat model -- so
+# there is NO chat template: prep_text concatenates
+#   [chat_template[0]="", system_prompt="", input_str="", free_tokens, chat_template[1]="", target_str]
+# i.e. the optimized free tokens sit directly before the target. This matches
+# their actual famous-quotes protocol (default promptmin.yaml + Fig 5 scaling,
+# Pythia 410M/1.4B/6.9B/12B; 12B = highest portion memorized ~0.56).
+model_name: EleutherAI/pythia-12b
+dataset: famous_quotes
+data_idx: 52           # 52 = "You miss 100% of the shots you don't take." (Gretzky)
+
+chat_template:
+  - ""
+  - ""
+system_prompt: ""
+input_str: ""
+
+# GCG settings = their famous-quotes defaults (promptmin.yaml).
+discrete_optimizer: gcg
+batch_size: 100
+mini_batch_size: 100
+num_steps: 200
+topk: 250
+lr: 0.01
+optimizer: adam
+max_tokens: -1         # -1 -> outer length search caps at 5x target length
+
+random_weights: false
+seed: 42
+target_str: jumps over the lazy dog   # ignored when dataset+data_idx are set
+experiment_name: ${model_name}_${discrete_optimizer}_${lr}_${batch_size}_${num_steps}_${topk}_${seed}
+run_id: ${generate_id:}
