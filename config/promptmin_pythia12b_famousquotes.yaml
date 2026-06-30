@@ -29,6 +29,7 @@ input_str: ""
 
 # GCG settings = their famous-quotes defaults (promptmin.yaml).
 discrete_optimizer: gcg
+b: 0.9                  # probabilistic success threshold: P(target|prompt) >= b**T (CLI/B-env overridable)
 batch_size: 100
 mini_batch_size: 100
 num_steps: 200
