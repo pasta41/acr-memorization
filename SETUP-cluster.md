@@ -47,6 +47,24 @@ pin, pip grabs the newest numpy, finds no matching wheel, and tries to compile
 from source — which fails on this cluster's old system GCC (4.8.5; numpy needs
 GCC >= 9.3). Pinning to a wheeled version avoids any compiler.
 
+## 2b. HF auth + pre-download models (login node)
+
+Compute nodes usually have **no internet**, so models must be in the shared HF
+cache before any slurm job runs. Authenticate once (writes the token to the HF
+cache that slurm jobs also read), then pre-download all four:
+
+```bash
+huggingface-cli login          # paste token; then: huggingface-cli whoami
+huggingface-cli download EleutherAI/pythia-12b          # open
+huggingface-cli download meta-llama/Llama-2-13b-hf      # gated -- NOTE the -hf suffix
+huggingface-cli download meta-llama/Llama-3.1-8B        # gated (3.x repos are HF-format, no -hf)
+huggingface-cli download allenai/OLMo-2-1124-13B        # open  (confirm -1124- date stamp)
+```
+
+Model-ID gotcha: `meta-llama/Llama-2-13b` (no `-hf`) is the raw Meta checkpoint
+(`consolidated.*.pth`) and will fail to load in transformers. Use `-hf`. This
+quirk is Llama-2 only; Llama-3.1 repo IDs are already HF-format.
+
 ## 3. Queue the runs with slurm
 
 Each script requests one A100 (`--gres=gpu:1` → one visible GPU → no sharding),
