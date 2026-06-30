@@ -265,3 +265,37 @@ combine with step 1 (avoid confounding the criterion change with the budget chan
 
 **Later:** top-k renormalized `P_k` + per-position rank/margin diagnostics; natural-prefix contrast
 (quote given a real cue, vs the adversarial GCG prompt).
+
+## Verification: the paper *defines* greedy decoding; the released code *teacher-forces*
+
+Checked the paper text (arXiv 2404.15146 v2) against the released code, because the gap is significant.
+- **Paper definition (§3.1, Alg. 1):** `M(x)=y` means the model *generates* `y` under **greedy decoding**
+  (autoregressively appending the argmax). Quote: "M can perform generation by repeatedly predicting the next
+  token … with the argmax … appended at each step (this process is called greedy decoding) … we will also call
+  the greedy decoding result the output of M." Algorithm 1's success test is written `M(z)=y`.
+- **Released code:** `success` = `check_output_with_hard_tokens` = **teacher-forced argmax** over the target
+  positions. `prompt-minimization-main.py` calls `model.generate` (line 83) but only **logs** it — never
+  compares to the target, never gates `success` / ACR / `results.json`.
+- **Equivalence + gap:** teacher-forced argmax-match-everywhere ⟺ greedy decoding reproduces the target *in
+  exact arithmetic*; they diverge in bf16 (full-forward check vs KV-cached generate), and GCG sits exactly on
+  the argmax margin (stops at first `match.all()`), maximally exposing the gap. So the code's `success` can —
+  and on 2/4 models (Pythia-12B, Llama-2-13B) did — mark prompts as memorized that **fail the paper's own
+  greedy-decoding definition**.
+- **Scope/caveat:** confirmed for the *released code* and *our four runs*. NOT independently confirmed that the
+  *published numbers* used this unverified check (they may have re-verified) — but the official pipeline does
+  not gate on generation, and the definition requires it.
+
+## Run plan / sequencing
+1. **Now:** step-1 relaxation on the **same quote** (Gretzky, idx 52), 4 base models, **current budget (200)**.
+2. **Then: other quotes** — TODO, pick a set (canonical short quotes + longer / post-cutoff controls). [Reminder
+   to AFC: more quotes to run once Gretzky validates the relaxation.]
+3. **Then:** raise the GCG step budget (`num_steps`) as a separate monotone axis (step 2). Don't combine with 1.
+
+## Implementation status (step 1 — DONE + smoke-tested)
+- `utils.py`: `suffix_logprob`, `check_output_prob_threshold` (base dist, fp32, sum-logprobs-then-exp).
+- `gcg.py`: `success_ce_threshold` inner early-stop (break when mean-CE ≤ −ln b; argmax fallback if None).
+- `miniprompt.py`: threshold success, T−1 early-quit cap, probabilistic metrics in output.
+- `prompt-minimization-main.py`: thread `b` (cfg, default 0.9), compute/log/save adjusted ACR + metrics.
+- Smoke-tested on pythia-160m (CPU, fp32): not-memorized path (b=0.5 → early-quit at T−1) and memorized path
+  (b=0.001 → shrink to |x*|=1, ACR=7) both run clean; threshold logging, early-quit, and num_steps ramp verified.
+  Not yet exercised on the 4 base-model cluster configs. `b` defaults to 0.9 (config-overridable, or `b=` on CLI).

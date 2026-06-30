@@ -67,7 +67,8 @@ def main(cfg):
                          "optimizer": cfg.optimizer,
                          "batch_size": cfg.batch_size,
                          "mini_batch_size": cfg.mini_batch_size,
-                         "topk": cfg.topk}
+                         "topk": cfg.topk,
+                         "b": cfg.get("b", 0.9)}  # probabilistic success threshold: P(target|prompt) >= b**T
 
     solution = prompt_opt.minimize_prompt(model, tokenizer, input_str, target_str, system_prompt, chat_template, device,
                                           optimization_args, max_tokens=cfg.max_tokens)
@@ -87,6 +88,14 @@ def main(cfg):
         logging.info(f"goal: {tokenizer.decode(input_ids[target_slice], skip_special_tokens=True)}")
         logging.info(f"output: {tokenizer.decode(output[0, target_slice], skip_special_tokens=True)}")
 
+        # Adjusted (probabilistic) ACR = T / |x*|. With the early-quit cap (|x*| < T),
+        # any success is memorization (ACR > 1).
+        target_length = target_slice.stop - target_slice.start
+        adjusted_acr = target_length / solution["num_free_tokens"]
+        logging.info(f"adjusted ACR = T/|x*| = {target_length}/{solution['num_free_tokens']} = "
+                     f"{adjusted_acr:.4f}  (b={solution.get('b')}, "
+                     f"P(suffix|prompt)={solution.get('suffix_prob')}, mean_ce={solution.get('mean_ce')})")
+
         # Calculate loss for the target_ids
         with torch.no_grad():
             ids_for_loss_computation = input_ids[target_slice].unsqueeze(0).to(device)
@@ -103,6 +112,7 @@ def main(cfg):
         # Compile data for saving to a JSON file
         results = {
             "target_length": target_slice.stop - target_slice.start,
+            "acr": adjusted_acr,
             "target_str": target_str,
             "loss_of_target_str": loss_of_target_str,
             "loss_of_prompt": loss_of_prompt,
@@ -115,10 +125,15 @@ def main(cfg):
             else:
                 results[k] = v
     else:
+        logging.info(f"NOT memorized at b={solution.get('b')}: no prompt with < T={solution.get('target_token_count')} "
+                     f"tokens reached P(suffix|prompt) >= b**T (ACR <= 1).")
         results = {"success": False,
+                   "acr": None,
                    "num_free_tokens": solution["num_free_tokens"],
                    "target_str": target_str,
                    "target_length": target_slice.stop - target_slice.start,
+                   "b": solution.get("b"),
+                   "target_token_count": solution.get("target_token_count"),
                    }
 
     for k, v in OmegaConf.to_container(cfg, resolve=True).items():

@@ -24,7 +24,10 @@ def sample_tokens(num_tokens, embedding_matrix, batch_size, device):
 
 
 def optimize_gcg(model, input_ids, input_slice, free_token_slice, target_slice, loss_slice,
-                 num_steps, topk=250, batch_size=100, mini_batch_size=100):
+                 num_steps, topk=250, batch_size=100, mini_batch_size=100, success_ce_threshold=None):
+    # success_ce_threshold: if set, the inner loop stops when the best candidate's mean
+    # per-token cross-entropy <= success_ce_threshold (i.e. P(target|prompt) >= b**T, with
+    # success_ce_threshold = -ln b). If None, falls back to the original argmax criterion.
     # Get embedding matrix
     try:
         embedding_matrix = model.get_input_embeddings().weight
@@ -69,15 +72,22 @@ def optimize_gcg(model, input_ids, input_slice, free_token_slice, target_slice, 
             # Compute test loss and check token matches
             output_single = model(input_ids=input_ids.unsqueeze(0))
             match = (output_single.logits[0, loss_slice].argmax(-1) == input_ids[target_slice].squeeze())
+        cur_loss = loss[best_candidate].mean().item()
         logging.info(f"step: {i:<4} | "
-                     f"loss: {loss[best_candidate].mean().item():0.6f} | "
+                     f"loss: {cur_loss:0.6f} | "
                      f"{match.int().tolist()} | "
                      )
-        if match.all():
+        # Success / early-stop: probabilistic threshold (mean-CE <= -ln b) if provided,
+        # else the original argmax criterion (every target token is the argmax).
+        if success_ce_threshold is not None:
+            acquired = cur_loss <= success_ce_threshold
+        else:
+            acquired = bool(match.all())
+        if acquired:
             best_input = input_ids.clone()
             break
-        if loss[best_candidate].mean().item() < best_loss:
-            best_loss = loss[best_candidate].mean().item()
+        if cur_loss < best_loss:
+            best_loss = cur_loss
             best_input = input_ids.clone()
 
     return {"input_ids": best_input, "inputs_embeds": model.get_input_embeddings()(best_input).unsqueeze(0)}

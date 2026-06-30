@@ -4,8 +4,10 @@ functions for preparing text for discrete optimization
 """
 import datetime
 import json
+import math
 
 import torch
+import torch.nn.functional as F
 from almost_unique_id import generate_id
 
 
@@ -62,6 +64,43 @@ def check_output_with_hard_tokens(model, input_ids, target_slice, loss_slice):
     output = model(input_ids)
     match = (output.logits[0, loss_slice].argmax(-1) == input_ids[0, target_slice].squeeze()).all()
     return match
+
+
+def suffix_logprob(model, input_ids, target_slice, loss_slice):
+    """Total teacher-forced log P(target | prompt) over the target positions.
+
+    Base (full) distribution, fp32 log_softmax, summed in log-space over exactly the
+    positions GCG scores (loss_slice predicts target_slice). input_ids: (1, seq_len).
+    Returns (total_logprob, mean_ce, num_target_tokens), where
+    total_logprob = sum_t log p(y_t | prompt, y_<t) and mean_ce = -total_logprob / T.
+    """
+    with torch.no_grad():
+        logits = model(input_ids).logits  # (1, seq_len, vocab)
+    # fp32 log_softmax over the full vocab (bf16 loses precision on per-token log-probs)
+    log_probs = F.log_softmax(logits[0, loss_slice], dim=-1, dtype=torch.float32)  # (T, vocab)
+    targets = input_ids[0, target_slice]  # (T,)
+    token_logprobs = log_probs.gather(1, targets.unsqueeze(-1)).squeeze(-1)  # (T,)
+    total_logprob = token_logprobs.sum().item()
+    num_target_tokens = int(targets.size(0))
+    mean_ce = -total_logprob / num_target_tokens
+    return total_logprob, mean_ce, num_target_tokens
+
+
+def check_output_prob_threshold(model, input_ids, target_slice, loss_slice, b):
+    """Probabilistic success criterion: P(target | prompt) >= b ** T.
+
+    Equivalent to mean per-token cross-entropy <= -ln(b) (the T's cancel; this is
+    exactly a threshold on GCG's own mean-CE loss). Computed under the base
+    distribution in fp32. Returns
+    (success, prob, mean_ce, total_logprob, num_target_tokens).
+    """
+    total_logprob, mean_ce, num_target_tokens = suffix_logprob(
+        model, input_ids, target_slice, loss_slice
+    )
+    threshold_logprob = num_target_tokens * math.log(b)  # = ln(b ** T)
+    success = bool(total_logprob >= threshold_logprob)
+    prob = math.exp(total_logprob)
+    return success, prob, mean_ce, total_logprob, num_target_tokens
 
 
 def now():
