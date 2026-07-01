@@ -26,4 +26,5 @@ python prompt-minimization-main.py \
   dataset="${DATASET}" \
   data_idx="${DATA_IDX}" \
   num_steps="${NSTEPS}" \
-  b_values="${BVALS}"
+  b_values="${BVALS}" \
+  "$@"                                 # forward extra Hydra overrides, e.g. seed=5
